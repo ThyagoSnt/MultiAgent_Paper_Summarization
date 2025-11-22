@@ -35,13 +35,6 @@ htmlcov/
 # Vector store
 chroma_db/
 
-# I/O
-samples/input_article_*.pdf
-samples/input_article_*.txt
-samples/input_article_*.md
-samples/output_*.json
-samples/review_*.md
-
 # Checkpoints
 *.bin
 *.pt

@@ -172,22 +172,6 @@ docker compose run --rm most-app bash
 
 Você estará em `/app` dentro do container, com o código montado via volume.
 
-### 4.3. Instalar dependências (dentro do container)
-
-Dentro do container:
-
-```bash
-make setup
-```
-
-O alvo `setup` executa:
-
-- `python -m pip install --upgrade pip`
-- `python -m pip install -r requirements.txt`
-
-Todas as dependências do projeto são instaladas no ambiente do container.
-
----
 
 ## 5. Construindo o vector store (ingestão dos 9 artigos)
 
@@ -495,7 +479,6 @@ A pasta `/app/chroma_db`, `/app/samples` e `/app/pdf_database` são montadas com
 4. Dentro do container, instalar dependências e construir o índice:
 
    ```bash
-   make setup
    make index
    ```
 
