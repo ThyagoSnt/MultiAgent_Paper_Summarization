@@ -357,9 +357,6 @@ Ou seja, os agentes internos não acessam diretamente a `VectorDatabase`; tudo p
   - Chama `run_pipeline(article_text)`.
   - Salva `review_N.md` e `output_N.json`.
   - Retorna metadados da execução.
-```
-
----
 
 ## 10. Testes automatizados
 
@@ -410,7 +407,7 @@ make help
   ```
 
 - `make mcp`  
-  (Opcional) Sobe o servidor MCP em background dentro do container, gravando o PID em `.mcp_server.pid`. Isso é útil apenas se você quiser conectar um cliente MCP externo (como ChatGPT) ao servidor rodando no container.
+ Sobe o servidor MCP em background dentro do container, gravando o PID em `.mcp_server.pid`. Isso é útil apenas se você quiser conectar um cliente MCP externo (como ChatGPT) ao servidor rodando no container.
 
 - `make stop-mcp`  
   Encerra o servidor MCP que foi iniciado com `make mcp`.
@@ -443,11 +440,12 @@ Resumo do fluxo usando Docker:
    # 2) Rodar o pipeline em um artigo de exemplo
    make agent SOURCE="samples/input_article_1.pdf"
 
-   # 3) Opcional: rodar testes
+   # 3) rodar testes
    make test
 
-   # 4) Opcional: subir servidor MCP em background para clientes externos
+   # 4) subir servidor MCP em background para clientes externos
    make mcp
+   
    # ... usar a partir de um cliente MCP externo ...
    make stop-mcp
    ```
@@ -482,9 +480,10 @@ A pasta `/app/chroma_db`, `/app/samples` e `/app/pdf_database` são montadas com
    make index
    ```
 
-5. Rodar o pipeline em um sample:
+5. Rodar o servidor e o pipeline pipeline em um sample:
 
    ```bash
+   make mcp
    make agent SOURCE="samples/input_article_1.pdf"
    ```
 
