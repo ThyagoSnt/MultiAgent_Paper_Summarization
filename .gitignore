@@ -1,0 +1,48 @@
+# Ambient
+.env
+*.env
+.env.*
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.pkl
+*.pickle
+
+# Build
+build/
+dist/
+*.egg-info/
+
+# Pytest / cache
+.pytest_cache/
+.coverage
+htmlcov/
+
+# IDEs
+.vscode/
+*.code-workspace
+.idea/
+*.swp
+*.swo
+
+# Docker
+*.pid
+*.log
+
+# Vector store
+chroma_db/
+
+# I/O
+samples/input_article_*.pdf
+samples/input_article_*.txt
+samples/input_article_*.md
+samples/output_*.json
+samples/review_*.md
+
+# Checkpoints
+*.bin
+*.pt
+*.ckpt

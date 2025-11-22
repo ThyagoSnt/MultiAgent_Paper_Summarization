@@ -1,0 +1,50 @@
+{
+  "name": "article-vector-store",
+  "label": "Article Vector Store",
+  "version": "1.0.0",
+  "description": "HTTP server exposing a vector database of PDF articles with search and full-content retrieval.",
+
+  "servers": [
+    {
+      "name": "http-local",
+      "transport": "http",
+      "url": "http://127.0.0.1:8000"
+    }
+  ],
+
+  "tools": [
+    {
+      "name": "search_articles",
+      "description": "Search for relevant articles in the vector store and return a ranked list of matches.",
+      "input": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Natural language query describing the topic or content to search for."
+          },
+          "top_k": {
+            "type": "integer",
+            "description": "Maximum number of distinct articles to return.",
+            "default": 5
+          }
+        },
+        "required": ["query"]
+      }
+    },
+    {
+      "name": "get_article_content",
+      "description": "Retrieve the full concatenated content for a given article_id from the vector store.",
+      "input": {
+        "type": "object",
+        "properties": {
+          "article_id": {
+            "type": "string",
+            "description": "Logical article identifier returned by search_articles (e.g., 'tech_tech_1')."
+          }
+        },
+        "required": ["article_id"]
+      }
+    }
+  ]
+}

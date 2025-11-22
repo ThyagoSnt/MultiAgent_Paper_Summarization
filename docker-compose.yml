@@ -1,0 +1,16 @@
+version: "3.9"
+
+services:
+  most-app:
+    build: .
+    container_name: most-app
+    env_file:
+      - .env
+    working_dir: /app
+    volumes:
+      - ./chroma_db:/app/chroma_db
+      - ./samples:/app/samples
+      - ./pdf_database:/app/pdf_database
+    ports:
+      - "8000:8000"
+    command: ["sleep", "infinity"]
