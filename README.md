@@ -1,50 +1,50 @@
-# MOST – Multi-Agent + Vector Store + MCP
+# Multi-Agent System for Paper Summary Tasks (Multi-Agent + Vector Store + OCR + MCP)
 
-Este repositório implementa o desafio técnico da MOST de construir um sistema multi-agente que:
+This repository implements the technical challenge of building a multi-agent system that:
 
-1. Recebe um artigo (PDF local, URL ou texto).
-2. Classifica o artigo em uma de três áreas científicas.
-3. Extrai um JSON com campos **exatamente** iguais aos do enunciado (incluindo o *typo* em `artcle`).
-4. Gera uma resenha crítica em português, apontando pontos fortes, limitações e ameaças à validade.
+1. Receives a paper (local PDF, URL, or text).
+2. Classifies the paper into one of three scientific areas.
+3. Extracts a JSON with fields **exactly** matching the prompt (including the *typo* in `artcle`).
+4. Produces a critical review in Portuguese, highlighting strengths, limitations, and threats to validity.
 
-O sistema é composto por:
+The system is composed of:
 
-- Um **vector store** em ChromaDB com 9 artigos (3 áreas × 3 PDFs por área).
-- Um **servidor MCP** expondo o acesso a esse vector store (`search_articles`, `get_article_content`).
-- Um **pipeline multi-agente** em LangGraph (classifier → extractor → reviewer).
-- Suporte a **OCR opcional** via Docling quando o PDF não tem texto embutido.
-- **Testes automatizados** para o vector store e para o pipeline integrado.
-- **Makefile**, **Dockerfile** e **docker-compose** para facilitar setup e execução.
+- A **vector store** in ChromaDB with 9 papers (3 areas × 3 PDFs per area).
+- An **MCP server** exposing access to that vector store (`search_articles`, `get_article_content`).
+- A **multi-agent pipeline** in LangGraph (classifier → extractor → reviewer).
+- Optional **OCR support** via Docling when the PDF has no embedded text.
+- **Automated tests** for the vector store and the integrated pipeline.
+- **Makefile**, **Dockerfile**, and **docker-compose** to simplify setup and execution.
 
 ---
 
-## 1. Arquitetura em alto nível
+## 1. High-level architecture
 
-Fluxo resumido:
+Summary flow:
 
-1. **Ingestão de base vetorial**
-   - PDFs organizados em `pdf_database/<area>/` (ex.: `economy`, `med`, `tech`).
-   - Cada PDF é fatiado em *chunks* (`chunk_size=1000`, `overlap=200`).
-   - Embeddings gerados com `sentence-transformers/all-MiniLM-L6-v2`.
-   - Tudo é indexado em uma coleção Chroma chamada `articles` em `chroma_db/`.
+1. **Vector database ingestion**
+   - PDFs organized under `pdf_database/<area>/` (e.g., `economy`, `med`, `tech`).
+   - Each PDF is split into *chunks* (`chunk_size=1000`, `overlap=200`).
+   - Embeddings generated with `sentence-transformers/all-MiniLM-L6-v2`.
+   - Everything is indexed in a Chroma collection named `articles` under `chroma_db/`.
 
-2. **Servidor MCP (`src/mcp_server/server.py`)**
-   - Lê a configuração em `configuration/base.yaml`.
-   - Abre o índice Chroma existente.
-   - Exibe duas tools via MCP:
-     - `search_articles(query: str, top_k: int)` → lista de `{id, title, area, score}`.
+2. **MCP Server (`src/mcp_server/server.py`)**
+   - Reads configuration from `configuration/base.yaml`.
+   - Opens the existing Chroma index.
+   - Exposes two tools via MCP:
+     - `search_articles(query: str, top_k: int)` → list of `{id, title, area, score}`.
      - `get_article_content(article_id: str)` → `{id, title, area, content}`.
 
-3. **Sistema multi-agente (`src/multi_agent_system`)**
-   - Implementado com **LangGraph**.
-   - Nodes principais:
+3. **Multi-agent system (`src/multi_agent_system`)**
+   - Implemented with **LangGraph**.
+   - Main nodes:
      - **classifier_node**  
-       Classifica o artigo em uma área.  
-       Usa:
-       - Texto do artigo (truncado a 4000 caracteres).
-       - Contexto vindo do MCP (`search_articles` com snippet inicial).
+       Classifies the paper into an area.  
+       Uses:
+       - The paper text (truncated to 4000 characters).
+       - Context retrieved via MCP (`search_articles` with an initial snippet).
      - **extractor_node**  
-       Lê o artigo (com truncamento de segurança) e preenche um JSON com o schema:
+       Reads the paper (with safety truncation) and fills a JSON with the schema:
 
        ```json
        {
@@ -54,198 +54,199 @@ Fluxo resumido:
        }
        ```
 
-       As chaves são **idênticas** às do enunciado, inclusive o `artcle`.
+       The keys are **identical** to the prompt, including `artcle`.
      - **reviewer_node**  
-       Usa o JSON extraído + parte do texto do artigo para gerar uma resenha crítica em português (Markdown).
+       Uses the extracted JSON + part of the paper text to produce a critical review in Portuguese (Markdown).
 
-   - O grafo é:  
+   - The graph is:  
      `start → classifier → extractor → reviewer → END`.
 
-4. **Entrada do usuário (`scripts/run_agents.py` + `src/pipeline/pipeline_runner.py`)**
-   - Aceita:
-     - Caminho local para `.pdf`, `.txt` ou `.md`.
-     - URL apontando para um PDF.
-   - Normaliza a entrada e grava em `samples/input_article_N.ext`.
-   - Roda o pipeline multi-agente (`run_pipeline`).
-   - Gera:
-     - `samples/review_N.md` com a resenha.
-     - `samples/output_N.json` com `{area, extraction, review_markdown}`.
+4. **User input (`scripts/run_agents.py` + `src/pipeline/pipeline_runner.py`)**
+   - Accepts:
+     - Local path to `.pdf`, `.txt`, or `.md`.
+     - A URL pointing to a PDF.
+   - Normalizes the input and saves it to `samples/input_article_N.ext`.
+   - Runs the multi-agent pipeline (`run_pipeline`).
+   - Generates:
+     - `samples/review_N.md` with the review.
+     - `samples/output_N.json` with `{area, extraction, review_markdown}`.
 
 ---
 
-## 2. Estrutura de diretórios
+## 2. Directory structure
 
-Visão geral da estrutura:
+Overview:
 
 ```text
 .
-├── chroma_db/               # Onde fica salvo o índice vetorial do ChromaDB
+├── chroma_db/               # Where the persistent ChromaDB vector index is stored
 ├── configuration/
-│   └── base.yaml            # Arquivo central de configuração (paths, vector DB, MCP, LLM etc.)
-├── pdf_database/            # Base local de PDFs usados como referência para o vector store
-│   ├── economy/             # 3 artigos de economia
-│   ├── med/                 # 3 artigos de medicina
-│   └── tech/                # 3 artigos de tecnologia
-├── samples/                 # Resultados gerados ao rodar o pipeline
-│   ├── input_article_N.pdf  # Artigos normalizados (PDF/URL/MD/TXT convertidos)
-│   ├── output_N.json        # Saída estruturada (área + JSON extraído + review)
-│   └── review_N.md          # Resenha crítica escrita pelo agente
+│   └── base.yaml            # Central configuration file (paths, vector DB, MCP, LLM, etc.)
+├── pdf_database/            # Local PDF base used as reference for the vector store
+│   ├── economy/             # 3 economy papers
+│   ├── med/                 # 3 medical papers
+│   └── tech/                # 3 technology papers
+├── samples/                 # Outputs generated when running the pipeline
+│   ├── input_article_N.pdf  # Normalized inputs (PDF/URL/MD/TXT)
+│   ├── output_N.json        # Structured output (area + extracted JSON + review)
+│   └── review_N.md          # Critical review written by the agent
 ├── src/
 │   ├── mcp_server/
-│   │   └── server.py        # Servidor MCP com as tools que expõem o vector store
+│   │   └── server.py        # MCP server exposing tools backed by the vector store
 │   ├── multi_agent_system/
-│   │   ├── classifier_agent.py   # Agente que classifica a área do artigo
-│   │   ├── extractor_agent.py    # Agente que gera o JSON pedido pelo desafio
-│   │   ├── reviewer_agent.py     # Agente que escreve a resenha crítica
-│   │   ├── graph.py              # Grafo LangGraph que conecta os três agentes
-│   │   └── mcp_vector_client.py  # Cliente HTTP que conversa com o servidor MCP
+│   │   ├── classifier_agent.py   # Agent that classifies the paper's area
+│   │   ├── extractor_agent.py    # Agent that generates the JSON required by the challenge
+│   │   ├── reviewer_agent.py     # Agent that writes the critical review
+│   │   ├── graph.py              # LangGraph graph connecting the three agents
+│   │   └── mcp_vector_client.py  # HTTP client that talks to the MCP server
 │   ├── pdf_parser/
-│   │   └── pdf_parser.py         # Leitor de PDF (PyPDF + OCR Docling quando necessário)
+│   │   └── pdf_parser.py         # PDF reader (PyPDF + Docling OCR fallback when needed)
 │   ├── pipeline/
-│   │   └── pipeline_runner.py    # Classe que orquestra todo o fluxo de execução
+│   │   └── pipeline_runner.py    # Orchestrates the full execution flow
 │   └── vector_database/
-│       ├── vector_database.py    # Implementação do vector store (Chroma + embeddings)
-│       └── ingestion_runner.py   # Classe que cuida da ingestão dos 9 PDFs e criação do índice
+│       ├── vector_database.py    # Vector store implementation (Chroma + embeddings)
+│       └── ingestion_runner.py   # Handles ingestion of the 9 PDFs and index creation
 ├── scripts/
-│   ├── database_ingestion.py     # Script para reconstruir a base vetorial
-│   └── run_agents.py             # Script CLI para rodar o pipeline em um artigo
-├── tests/                        # Conjunto de testes automatizados
+│   ├── database_ingestion.py     # Script to rebuild the vector database
+│   └── run_agents.py             # CLI script to run the pipeline on a paper
+├── tests/                        # Automated test suite
 │   ├── test_vector_database.py
 │   └── test_graph_pipeline.py
-├── mcp.json                      # Manifesto MCP (para clientes MCP externos)
-├── Makefile                      # Comandos principais (setup, index, tests, agents, mcp)
-├── Dockerfile                    # Imagem Docker do projeto
-├── docker-compose.yml            # Orquestração via Docker Compose
-├── requirements.txt              # Dependências Python
-└── pytest.ini                    # Configuração do pytest
+├── mcp.json                      # MCP manifest (for external MCP clients)
+├── Makefile                      # Main commands (setup, index, tests, agents, mcp)
+├── Dockerfile                    # Project Docker image
+├── docker-compose.yml            # Docker Compose orchestration
+├── requirements.txt              # Python dependencies
+└── pytest.ini                    # Pytest configuration
 ```
 
 ---
 
-## 3. Requisitos
+## 3. Requirements
 
-### 3.1. Dependências principais
+### 3.1. Main dependencies
 
-A execução é pensada para acontecer **dentro de um container Docker**. No host você precisa apenas de:
+Execution is designed to run **inside a Docker container**. On the host, you only need:
 
 - Docker
 - Docker Compose
-- Uma variável de ambiente ou arquivo `.env` com:
+- An environment variable or `.env` file with:
 
   ```bash
-  GROQ_API_KEY=<sua_chave_da_groq>
+  GROQ_API_KEY=<your_groq_key>
   ```
 
-Opcionalmente, se estiver rodando em uma máquina com GPU e CUDA configurados, o PyTorch e o `sentence-transformers` vão utilizá-la automaticamente dentro do container.
+Optionally, if you run on a machine with GPU and CUDA configured, PyTorch and `sentence-transformers` will use it automatically inside the container.
 
-### 3.2. Variáveis de ambiente
+### 3.2. Environment variables
 
-Na raiz do projeto, crie um `.env` com:
+At the project root, create a `.env` with:
 
 ```bash
-echo "GROQ_API_KEY=SEU_TOKEN_AQUI" > .env
+echo "GROQ_API_KEY=YOUR_TOKEN_HERE" > .env
 ```
 
-O `docker-compose.yml` já está configurado para carregar esse `.env` para o container.
+`docker-compose.yml` is already configured to load this `.env` into the container.
 
 ---
 
-## 4. Execução com Docker e docker-compose
+## 4. Running with Docker and docker-compose
 
-Toda a instalação de dependências, construção do índice vetorial e execução do pipeline acontece **dentro** do container.
+All dependency installation, vector index creation, and pipeline execution happen **inside** the container.
 
-### 4.1. Build da imagem
+### 4.1. Build the image
 
-Na raiz do projeto:
+At the project root:
 
 ```bash
 docker compose build
 ```
 
-### 4.2. Entrar no container
+### 4.2. Enter the container
 
-Para abrir um shell dentro do container:
+To open a shell inside the container:
 
 ```bash
-docker compose run --rm most-app bash
+docker compose run --rm summary-app bash
 ```
 
-Você estará em `/app` dentro do container, com o código montado via volume.
+You will be in `/app` inside the container, with the code mounted via a volume.
 
+---
 
-## 5. Construindo o vector store (ingestão dos 9 artigos)
+## 5. Building the vector store (ingesting the 9 papers)
 
-![Diagrama da construção](./documentation_images/index.png)
+![Index build diagram](./documentation_images/index.png)
 
-Ainda **dentro do container**, use:
+Still **inside the container**, run:
 
 ```bash
 make index
 ```
 
-O alvo `index` faz:
+The `index` target:
 
-1. Limpeza da pasta `chroma_db/` (se existir).
-2. Reconstrução completa do índice vetorial chamando `scripts.database_ingestion`.
+1. Cleans the `chroma_db/` folder (if it exists).
+2. Rebuilds the full vector index by calling `scripts.database_ingestion`.
 
-Internamente:
+Internally it:
 
-1. Lê `configuration/base.yaml`.
-2. Descobre `pdf_database/` e `chroma_db/`.
-3. Cria uma instância de `VectorDatabase` com:
+1. Reads `configuration/base.yaml`.
+2. Resolves `pdf_database/` and `chroma_db/`.
+3. Creates a `VectorDatabase` instance with:
    - `embedding_model="sentence-transformers/all-MiniLM-L6-v2"`
    - `chunk_size=1000`
    - `chunk_overlap=200`
-4. Percorre cada subpasta de `pdf_database`:
-   - Cada PDF é lido, extraído como texto, chunkado e indexado.
-5. Grava os embeddings e metadados em Chroma (persistindo em `/app/chroma_db`, montado no host).
+4. Iterates each subfolder under `pdf_database/`:
+   - Each PDF is read, text extracted, chunked, and indexed.
+5. Persists embeddings and metadata into Chroma (stored under `/app/chroma_db`, which is mounted to the host).
 
 ---
 
-## 6. OCR e extração de texto de PDFs
+## 6. OCR and text extraction from PDFs
 
-![Diagrama do parser](./documentation_images/parser.png)
+![Parser diagram](./documentation_images/parser.png)
 
-A classe `PdfTextExtractor` (`src/pdf_parser/pdf_parser.py`) implementa:
+The `PdfTextExtractor` class (`src/pdf_parser/pdf_parser.py`) implements:
 
-1. **Extração com PyPDF**
-   - Usa `pypdf.PdfReader` e `page.extract_text()` página a página.
-   - Se conseguir extrair texto, retorna esse conteúdo.
+1. **Extraction with PyPDF**
+   - Uses `pypdf.PdfReader` and `page.extract_text()` page by page.
+   - If it can extract text, it returns that content.
 
-2. **Fallback com OCR via Docling (opcional)**
-   - Se **nenhum texto** for encontrado com PyPDF e `enable_ocr=True`, tenta OCR.
-   - Usa `docling.document_converter.DocumentConverter().convert(...)`.
-   - Chama `export_to_text()`.
-   - Se ainda assim não houver texto, lança `ValueError`.
+2. **OCR fallback via Docling (optional)**
+   - If **no text** is found with PyPDF and `enable_ocr=True`, it tries OCR.
+   - Uses `docling.document_converter.DocumentConverter().convert(...)`.
+   - Calls `export_to_text()`.
+   - If there is still no text, it raises `ValueError`.
 
-Na pipeline, o OCR está habilitado por padrão para arquivos `.pdf`.
+In the pipeline, OCR is enabled by default for `.pdf` files.
 
 ---
 
-## 7. Pipeline multi-agente (LangGraph)
+## 7. Multi-agent pipeline (LangGraph)
 
-![Diagrama do system agêntico](./documentation_images/agent.png)
+![Agent system diagram](./documentation_images/agent.png)
 
-O grafo está em `src/multi_agent_system/graph.py`. Componentes:
+The graph lives in `src/multi_agent_system/graph.py`. Components:
 
 - **Classifier Agent (`classifier_agent.py`)**
-  - Descobre as áreas listando subpastas em `pdf_database/` (ex.: `economy`, `med`, `tech`).
-  - Trunca o texto do artigo em `max_article_chars` (4000 caracteres).
-  - Usa o cliente MCP (`MCPVectorStoreClient`) para chamar `search_articles` com snippet inicial (`mcp_query_chars`, 800 caracteres).
-  - Monta um contexto textual com os hits do vector store.
-  - Chama o LLM Groq com:
-    - Prompt de sistema configurado em `MultiAgentConfig`.
-    - Mensagem humana contendo artigo truncado + lista de artigos similares.
-  - Normaliza a saída para uma área conhecida (match exato, substring, sinônimos tipo “econ”).
+  - Discovers the areas by listing subfolders under `pdf_database/` (e.g., `economy`, `med`, `tech`).
+  - Truncates the paper text to `max_article_chars` (4000 characters).
+  - Uses the MCP client (`MCPVectorStoreClient`) to call `search_articles` with an initial snippet (`mcp_query_chars`, 800 characters).
+  - Builds a textual context from the vector store hits.
+  - Calls the Groq LLM with:
+    - A system prompt configured in `MultiAgentConfig`.
+    - A human message containing truncated paper text + similar-paper list.
+  - Normalizes the output into a known area (exact match, substring, synonyms like “econ”).
 
 - **Extractor Agent (`extractor_agent.py`)**
-  - Recebe `article_text` (e opcionalmente `area`).
-  - Trunca o texto para `max_article_chars` (6000).
-  - Instrui o LLM a devolver **apenas** JSON.
-  - Usa `_extract_json_from_response` para suportar:
-    - JSON cru.
-    - Blocos ```json ... ```.
-  - Usa `_normalize_extraction` para garantir:
+  - Receives `article_text` (and optionally `area`).
+  - Truncates the text to `max_article_chars` (6000).
+  - Instructs the LLM to return **only** JSON.
+  - Uses `_extract_json_from_response` to support:
+    - Raw JSON.
+    - ```json ... ``` fenced blocks.
+  - Uses `_normalize_extraction` to ensure:
 
     ```json
     {
@@ -256,37 +257,37 @@ O grafo está em `src/multi_agent_system/graph.py`. Componentes:
     ```
 
 - **Reviewer Agent (`reviewer_agent.py`)**
-  - Recebe `area`, `extraction` e `article_text`.
-  - Serializa `extraction` para JSON string.
-  - Trunca o artigo em ~4000 caracteres para contexto opcional.
-  - Gera resenha crítica em português, com foco em:
-    - Novidade / contribuição.
-    - Método / desenho experimental.
-    - Validade dos resultados.
-    - Ameaças à validade e replicabilidade.
+  - Receives `area`, `extraction`, and `article_text`.
+  - Serializes `extraction` to a JSON string.
+  - Truncates the paper to ~4000 characters for optional context.
+  - Generates a critical review in Portuguese, focusing on:
+    - Novelty / contribution.
+    - Method / experimental design.
+    - Validity of results.
+    - Threats to validity and reproducibility.
 
-- **Grafo (`graph.py`)**
-  - Estado: `{"article_text", "area", "extraction", "review"}`.
-  - Ordem:
+- **Graph (`graph.py`)**
+  - State: `{"article_text", "area", "extraction", "review"}`.
+  - Order:
     - `start → classifier → extractor → reviewer → END`.
-  - Função pública:
+  - Public function:
     - `run_pipeline(article_text: str) -> Dict[str, Any]`.
 
 ---
 
-## 8. Servidor MCP
+## 8. MCP server
 
-![Diagrama do sistema mcp](./documentation_images/mcp.png)
+![MCP system diagram](./documentation_images/mcp.png)
 
-Em `src/mcp_server/server.py`:
+In `src/mcp_server/server.py`:
 
-- Lê `configuration/base.yaml`:
-  - Configura `pdf_root`, `chroma_path`.
-  - Configura `embedding_model`, `collection_name`, `chunk_size`, `chunk_overlap`.
-  - Configura `mcp.name`, `mcp.transport`.
-- Instancia `VectorDatabase` com essas configurações.
-- Cria servidor `FastMCP` com `json_response=True`.
-- Tools expostas:
+- Reads `configuration/base.yaml`:
+  - Configures `pdf_root`, `chroma_path`.
+  - Configures `embedding_model`, `collection_name`, `chunk_size`, `chunk_overlap`.
+  - Configures `mcp.name`, `mcp.transport`.
+- Instantiates `VectorDatabase` with these settings.
+- Creates a `FastMCP` server with `json_response=True`.
+- Exposed tools:
 
 ```python
 @mcp.tool()
@@ -300,12 +301,12 @@ def get_article_content(article_id: str) -> Dict[str, Any]:
     ...
 ```
 
-### 8.1. Manifest MCP (`mcp.json`)
+### 8.1. MCP Manifest (`mcp.json`)
 
-`mcp.json` define:
+`mcp.json` defines:
 
-- Nome, label, versão e descrição do servidor.
-- Como iniciar via STDIO:
+- Server name, label, version, and description.
+- How to start it via STDIO:
 
 ```jsonc
 {
@@ -327,176 +328,180 @@ def get_article_content(article_id: str) -> Dict[str, Any]:
 }
 ```
 
-Isso é utilizado por clientes MCP externos (por exemplo, ChatGPT ou IDEs) para descobrir como falar com o servidor dentro do container.
+This is used by external MCP clients (e.g., ChatGPT or IDEs) to discover how to talk to the server inside the container.
 
-### 8.2. Cliente MCP interno (`MCPVectorStoreClient`)
+### 8.2. Internal MCP client (`MCPVectorStoreClient`)
 
 `src/multi_agent_system/mcp_vector_client.py`:
 
-- Usa `mcp.ClientSession` + `stdio_client` para lançar o servidor MCP como subprocesso:
-  - Comando padrão: `python -m src.mcp_server.server 2>/dev/null`.
-- Métodos públicos:
+- Uses `mcp.ClientSession` + `stdio_client` to launch the MCP server as a subprocess:
+  - Default command: `python -m src.mcp_server.server 2>/dev/null`.
+- Public methods:
   - `search_articles(query: str, top_k: int)`.
   - `get_article_content(article_id: str)`.
 
-Ou seja, os agentes internos não acessam diretamente a `VectorDatabase`; tudo passa pelas tools MCP.
+In other words, internal agents do not access `VectorDatabase` directly; everything goes through the MCP tools.
 
 ---
 
-## 9. CLI de execução do pipeline (utilizar o make file explicado na sequência)
+## 9. Pipeline execution CLI (use the Makefile explained next)
 
 `src/pipeline/pipeline_runner.py`:
 
 - `ArticleSampleManager`:
-  - Lê `samples/output_N.json` para descobrir próximo índice.
-  - Copia arquivos locais ou baixa URLs para `samples/input_article_N.ext`.
-  - Calcula paths para `review_N.md` e `output_N.json`.
+  - Reads `samples/output_N.json` to discover the next index.
+  - Copies local files or downloads URLs into `samples/input_article_N.ext`.
+  - Computes paths for `review_N.md` and `output_N.json`.
 
 - `ArticlePipelineRunner`:
-  - Resolve source → normaliza entrada → lê texto.
-  - Chama `run_pipeline(article_text)`.
-  - Salva `review_N.md` e `output_N.json`.
-  - Retorna metadados da execução.
+  - Resolves source → normalizes input → reads text.
+  - Calls `run_pipeline(article_text)`.
+  - Saves `review_N.md` and `output_N.json`.
+  - Returns execution metadata.
 
-## 10. Testes automatizados
+---
 
-### 10.1. Rodando os testes (dentro do container)
+## 10. Automated tests
 
-Com `GROQ_API_KEY` disponível no ambiente (via `.env`):
+### 10.1. Running tests (inside the container)
+
+With `GROQ_API_KEY` available in the environment (via `.env`):
 
 ```bash
 make test
 ```
 
-O alvo `test`:
+The `test` target:
 
-1. Reconstrói a base vetorial (`scripts.database_ingestion`).
-2. Roda `pytest`.
+1. Rebuilds the vector database (`scripts.database_ingestion`).
+2. Runs `pytest`.
 
-### 10.2. Testes
+### 10.2. Tests
 
 - `tests/test_vector_database.py`:
-  - Testa chunking, `search_articles` e `get_article_content`.
+  - Tests chunking, `search_articles`, and `get_article_content`.
 - `tests/test_graph_pipeline.py`:
-  - Integração completa do grafo (`run_pipeline`) em um PDF.
-  - Pula se `GROQ_API_KEY` não estiver setada.
+  - End-to-end integration of the graph (`run_pipeline`) on a PDF.
+  - Skips if `GROQ_API_KEY` is not set.
 
 ---
 
 ## 11. Makefile
 
-Os principais alvos disponíveis **dentro do container**:
+Main targets available **inside the container**:
 
 ```text
 make help
 ```
 
 - `make index`  
-  Limpa a pasta `chroma_db/` e reconstrói todo o índice vetorial a partir de `pdf_database/`.
+  Cleans the `chroma_db/` folder and rebuilds the full vector index from `pdf_database/`.
 
 - `make test`  
-  Reconstrói o índice e roda `pytest`.
+  Rebuilds the index and runs `pytest`.
 
 - `make agent SOURCE=...`  
-  Roda o pipeline multi-agente em um artigo (arquivo local ou URL).  
-  Exemplos:
+  Runs the multi-agent pipeline on a paper (local file or URL).  
+  Examples:
 
   ```bash
   make agent SOURCE="samples/input_article_1.pdf"
-  make agent SOURCE="https://exemplo.com/artigo.pdf"
+  make agent SOURCE="https://example.com/paper.pdf"
   ```
 
 - `make mcp`  
- Sobe o servidor MCP em background dentro do container, gravando o PID em `.mcp_server.pid`. Isso é útil apenas se você quiser conectar um cliente MCP externo (como ChatGPT) ao servidor rodando no container.
+  Starts the MCP server in the background inside the container, writing the PID to `.mcp_server.pid`. This is only useful if you want to connect an external MCP client (like ChatGPT) to the server running inside the container.
 
 - `make stop-mcp`  
-  Encerra o servidor MCP que foi iniciado com `make mcp`.
+  Stops the MCP server started via `make mcp`.
 
 ---
 
-## 12. Docker e docker-compose
+## 12. Docker and docker-compose
 
-Resumo do fluxo usando Docker:
+Summary of the Docker flow:
 
-1. **Build da imagem** (no host):
+1. **Build the image** (on the host):
 
    ```bash
    docker compose build
    ```
 
-2. **Entrar no container** (no host):
+2. **Enter the container** (on the host):
 
    ```bash
-   docker compose run --rm most-app bash
+   docker compose run --rm summary-app bash
    ```
 
-3. **Dentro do container** (em `/app`):
+3. **Inside the container** (in `/app`):
 
    ```bash
 
-   # 1) Construir o índice vetorial em chroma_db/
+   # 1) Build the vector index in chroma_db/
    make index
 
-   # 2) Rodar o pipeline em um artigo de exemplo
+   # 2) Run the pipeline on an example paper
    make agent SOURCE="samples/input_article_1.pdf"
 
-   # 3) rodar testes
+   # 3) Run tests
    make test
 
-   # 4) subir servidor MCP em background para clientes externos
+   # 4) Start MCP server in the background for external clients
    make mcp
-   
-   # ... usar a partir de um cliente MCP externo ...
+
+   # ... use it from an external MCP client ...
    make stop-mcp
    ```
 
-A pasta `/app/chroma_db`, `/app/samples` e `/app/pdf_database` são montadas como volumes do host, então os artefatos gerados dentro do container aparecem na árvore local do projeto.
+The `/app/chroma_db`, `/app/samples`, and `/app/pdf_database` folders are mounted as host volumes, so artifacts generated inside the container appear in the local project tree.
 
 ---
 
-## 13. Resumo rápido
+## 13. Quick summary
 
-1. Criar `.env` com a chave (no host):
+1. Create `.env` with the key (on the host):
 
    ```bash
-   echo "GROQ_API_KEY=SEU_TOKEN_AQUI" > .env
+   echo "GROQ_API_KEY=YOUR_TOKEN_HERE" > .env
    ```
 
-2. Construir a imagem Docker (no host):
+2. Build the Docker image (on the host):
 
    ```bash
    docker compose build
    ```
 
-3. Entrar no container:
+3. Enter the container:
 
    ```bash
-   docker compose run --rm most-app bash
+   docker compose run --rm summary-app bash
    ```
 
-4. Dentro do container, instalar dependências e construir o índice:
+4. Inside the container, build the index:
 
    ```bash
    make index
    ```
 
-5. Rodar o servidor e o pipeline pipeline em um sample:
+5. Run the server and the pipeline on a sample:
 
    ```bash
    make mcp
    make agent SOURCE="samples/input_article_1.pdf"
    ```
 
-6. Conferir saídas (a partir do host ou do container):
+6. Check outputs (from host or container):
 
    - `samples/output_N.json`
    - `samples/review_N.md`
 
-# 14. Configuração detalhada (`base.yaml`) — explicação dos parâmetros
+---
 
-A seguir está uma explicação clara e objetiva sobre **o que cada campo da configuração faz** e **por que foi escolhido desse jeito** dentro do sistema.
+# 14. Detailed configuration (`base.yaml`) — parameter explanations
 
-## **Bloco `mcp`: parâmetros do servidor MCP**
+Below is a clear and objective explanation of **what each configuration field does** and **why it was chosen** within this system.
+
+## **`mcp` block: MCP server parameters**
 
 ```yaml
 mcp:
@@ -508,26 +513,26 @@ mcp:
 ```
 
 ### ✦ `name: "ArticleVectorStore"`
-Nome lógico do servidor MCP.  
-É usado apenas para identificação por clientes MCP externos.  
-Escolhemos esse nome porque o servidor expõe exatamente um vector store de artigos.
+Logical name of the MCP server.  
+Used only for identification by external MCP clients.  
+We chose this name because the server exposes exactly one vector store of papers.
 
 ### ✦ `transport: "http"`
-Define que o MCP roda como **servidor HTTP**, e não STDIO.  
-Isso permite que o multi-agent system converse com o MCP via requisições HTTP normais — mais simples, mais previsível e mais fácil para debugar.
+Defines that MCP runs as an **HTTP server**, not STDIO.  
+This allows the multi-agent system to talk to MCP using normal HTTP requests — simpler, more predictable, and easier to debug.
 
 ### ✦ `host: "0.0.0.0"`
-Faz o servidor escutar em todas as interfaces de rede do container.  
-É necessário para que o multi-agent system consiga atingir o MCP mesmo estando em processos separados.
+Makes the server listen on all network interfaces inside the container.  
+This is required so the multi-agent system can reach MCP even when running in separate processes.
 
 ### ✦ `port: 8000`
-Porta padrão do servidor FastAPI/uvicorn no projeto.
+Default port for the project's FastAPI/uvicorn server.
 
 ### ✦ `base_url: "http://127.0.0.1:8000"`
-URL usada pelo cliente MCP (`MCPVectorStoreClient`) para enviar requisições.  
-Mesmo o host real sendo `0.0.0.0`, o cliente se conecta a `127.0.0.1` dentro do container.
+URL used by the MCP client (`MCPVectorStoreClient`) to send requests.  
+Even though the server binds to `0.0.0.0`, the client connects to `127.0.0.1` from within the container.
 
-## **Bloco `paths`: caminhos principais**
+## **`paths` block: main paths**
 
 ```yaml
 paths:
@@ -536,14 +541,14 @@ paths:
 ```
 
 ### ✦ `pdf_root`
-Diretório onde ficam os 9 PDFs usados para construir o vector store.  
-Escolhemos uma estrutura `<area>/<pdf>` porque o classificador descobre as áreas automaticamente listando as subpastas.
+Directory containing the 9 PDFs used to build the vector store.  
+We chose a `<area>/<pdf>` structure because the classifier discovers areas automatically by listing the subfolders.
 
 ### ✦ `chroma_path`
-Diretório onde o ChromaDB salva seu banco vetorial persistente.  
-Mantido simples e na raiz do projeto para facilitar versionamento e limpeza com `make index`.
+Directory where ChromaDB saves its persistent vector database.  
+Kept simple and at the project root to simplify versioning and cleanup via `make index`.
 
-## **Bloco `vector_db`: parâmetros do vetor store**
+## **`vector_db` block: vector store parameters**
 
 ```yaml
 vector_db:
@@ -554,28 +559,28 @@ vector_db:
 ```
 
 ### ✦ `embedding_model: all-MiniLM-L6-v2`
-Modelo rápido, leve e altamente recomendado para **similaridade semântica**.  
-Motivações:
-- 100x mais leve que modelos grandes
-- Embeddings muito bons para artigos curtos
-- Latência baixa, ideal para pipelines multi-agente
+A fast, lightweight model that is widely recommended for **semantic similarity**.  
+Motivations:
+- Much lighter than large models
+- Strong embeddings for shorter technical text
+- Low latency, ideal for multi-agent pipelines
 
 ### ✦ `collection_name: articles`
-Nome da coleção no ChromaDB.  
-Mantivemos `articles` pois o conteúdo armazenado é exclusivamente de artigos científicos.
+ChromaDB collection name.  
+We kept `articles` because the stored content is exclusively scientific papers.
 
 ### ✦ `chunk_size: 1000`  
-Cada PDF é dividido em pedaços de até 1000 caracteres.  
-Esse tamanho é um balanço ideal entre:
-- contexto suficiente por chunk  
-- boa granularidade para busca vetorial  
-- velocidade na geração dos embeddings  
+Each PDF is split into chunks of up to 1000 characters.  
+This size balances:
+- enough context per chunk  
+- good granularity for vector search  
+- faster embedding generation  
 
 ### ✦ `chunk_overlap: 200`  
-Overlap de 20% entre chunks.  
-Escolhido para evitar perda de contexto entre quebras — especialmente importante em PDFs longos.
+20% overlap between chunks.  
+Chosen to prevent context loss across chunk boundaries — especially important for longer PDFs.
 
-## **Bloco `multi_agent`: configuração dos agentes LLM**
+## **`multi_agent` block: LLM agent configuration**
 
 ```yaml
 multi_agent:
@@ -586,72 +591,72 @@ multi_agent:
 ```
 
 ### ✦ `provider: groq`
-Usamos **Groq** por ser extremamente rápido, reduzindo latência do pipeline.
+We use **Groq** for extremely low latency, reducing overall pipeline response time.
 
 ### ✦ `model: openai/gpt-oss-120b`
-Modelo OSS acelerado pela Groq, com ótimo equilíbrio entre:
-- custo
-- velocidade
-- capacidade de raciocínio
+An OSS model accelerated by Groq, with a strong balance of:
+- cost
+- speed
+- reasoning capability
 
-Empiricamente, foi o que gerou resultados mais consistentes no classificador, extractor e reviewer.
+Empirically, it produced the most consistent results for the classifier, extractor, and reviewer.
 
 ### ✦ `temperature: 0.0`
-Comportamento totalmente determinístico.  
-Fundamental para:
-- testes automatizados funcionarem sempre igual  
-- JSON ser extraído sem variação de estrutura  
-- classificação não oscilar entre execuções
+Fully deterministic behavior.  
+Essential for:
+- automated tests being stable  
+- JSON extraction without structural variation  
+- classification not oscillating across runs
 
-## **Prompts dos agentes**
+## **Agent prompts**
 
-### **Classifier Prompt**
-Focado em escolher **apenas uma** das três áreas.  
-Tem acesso ao resultado de `search_articles()`, incentivando uso de contexto real do vector store.
+### **Classifier prompt**
+Focused on selecting **exactly one** of the three areas.  
+It has access to the output of `search_articles()`, encouraging use of real vector-store context.
 
-### **Extractor Prompt**
-Força o LLM a devolver **somente** o JSON com:
-- chaves idênticas ao enunciado
-- formato rígido
-- assertividade no passo a passo
+### **Extractor prompt**
+Forces the LLM to return **only** the JSON with:
+- keys identical to the prompt
+- strict format
+- an assertive step-by-step solution
 
-O “typo” em `artcle` é preservado para seguir o enunciado oficial.
+The `artcle` typo is preserved to follow the official prompt.
 
-### **Reviewer Prompt**
-Gera uma resenha crítica completa em **português brasileiro**, com oito seções obrigatórias.  
-Também orienta o modelo a identificar quando o artigo é “fora da área”, respeitando o comportamento do classificador.
+### **Reviewer prompt**
+Generates a complete critical review in **Brazilian Portuguese**, with eight mandatory sections.  
+It also guides the model to recognize when the paper is “out of area,” matching the classifier behavior.
 
-## **Dependências principais e justificativas**
+## **Main dependencies and rationale**
 
 ### **groq**
-LLM de baixa latência → reduz o tempo de resposta do pipeline.
+Low-latency LLM provider → reduces pipeline response time.
 
 ### **chromadb**
-Vector store simples e eficiente, com API Python direta.
+Simple and efficient vector store with a direct Python API.
 
 ### **sentence-transformers**
-Gera embeddings de alta qualidade para busca semântica.
+High-quality embeddings for semantic search.
 
 ### **pypdf**
-Primeiro estágio de extração de texto — rápido e sem dependências nativas.
+First-stage text extraction — fast and without native dependencies.
 
 ### **docling**
-OCR moderno usado como fallback para PDFs que não têm texto embutido.
+Modern OCR used as a fallback for PDFs without embedded text.
 
 ### **easyocr**
-Dependência complementar usada internamente pelo Docling em alguns cenários.
+Complementary dependency used internally by Docling in some scenarios.
 
 ### **langgraph**
-Permite montar o pipeline de agentes com fluxo determinístico e reproducível.
+Builds a deterministic and reproducible agent pipeline.
 
 ### **langchain-groq**
-Driver Groq para facilitar chamadas LLM.
+Groq driver to simplify LLM calls.
 
 ### **fastapi + uvicorn**
-Infra leve para o servidor MCP via HTTP.
+Lightweight infra for the MCP server over HTTP.
 
 ### **pydantic**
-Validação rigorosa para todas as requests/responses do MCP.
+Strict validation for all MCP requests/responses.
 
 ### **pytest**
-Testes automatizados para vector store e pipeline multi-agente.
+Automated tests for the vector store and the multi-agent pipeline.

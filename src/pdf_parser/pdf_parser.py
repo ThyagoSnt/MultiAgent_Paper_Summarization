@@ -12,8 +12,8 @@ try:
     from docling.document_converter import DocumentConverter
 
     _DOCLING_AVAILABLE = True
-except ImportError:  # pragma: no cover - optional dependency
-    DocumentConverter = None  # type: ignore
+except ImportError:
+    DocumentConverter = None
     _DOCLING_AVAILABLE = False
 
 
@@ -46,14 +46,6 @@ class PdfTextExtractor:
         -------
         str
             The extracted text (possibly from OCR).
-
-        Raises
-        ------
-        FileNotFoundError
-            If the file does not exist.
-        ValueError
-            If the file is not a PDF or no text can be extracted
-            (even after OCR, or OCR disabled / unavailable).
         """
         pdf_path = Path(pdf_path)
 
@@ -157,8 +149,6 @@ class PdfTextExtractor:
             # Docling accepts either a local path or a URL as the `source`.
             result = converter.convert(str(pdf_path))
 
-            # You can choose export_to_text() or export_to_markdown().
-            # For pure NLP-style processing, plain text is often preferable.
             text = result.document.export_to_text()
             if not isinstance(text, str):
                 logger.warning(
@@ -171,7 +161,7 @@ class PdfTextExtractor:
             if not text:
                 return ""
 
-            if len(text) > max_chars:
+            if max_chars is not None and len(text) > max_chars:
                 logger.info(
                     "Docling OCR output truncated from %d to %d chars for file %s.",
                     len(text),
