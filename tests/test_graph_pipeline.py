@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from src.pdf_parser.pdf_parser import PdfTextExtractor
-from src.multi_agent_system.graph import run_pipeline
+from src.multi_agent_system.multi_agent_graph import run_pipeline
 
 
 # Skip this whole module if there is no GROQ_API_KEY (LLM integration test)

@@ -10,7 +10,7 @@ from typing import Dict, Any
 from urllib.request import urlretrieve
 
 from src.pdf_parser.pdf_parser import PdfTextExtractor
-from src.multi_agent_system.graph import run_pipeline
+from src.multi_agent_system.multi_agent_graph import run_pipeline
 
 logger = logging.getLogger(__name__)
 

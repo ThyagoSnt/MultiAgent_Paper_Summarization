@@ -10,14 +10,6 @@ logger = logging.getLogger(__name__)
 
 
 class MultiAgentConfig:
-    """
-    OO wrapper around the multi_agent section of configuration/base.yaml.
-
-    Usage:
-        cfg = MultiAgentConfig()  # loads once
-        system_prompt = cfg.get_prompt("classifier")
-        llm_cfg = cfg.get_llm_config()
-    """
 
     def __init__(self, config_path: Path | None = None) -> None:
         # Discover project root: .../most
@@ -54,7 +46,6 @@ class MultiAgentConfig:
         )
 
     # Public API
-
     def get_multi_agent_config(self) -> Dict[str, Any]:
         """
         Returns the entire `multi_agent` config block.

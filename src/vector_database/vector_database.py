@@ -1,8 +1,8 @@
 import logging
 from pathlib import Path
 from typing import List, Dict, Any
-
 import chromadb
+import tiktoken
 from sentence_transformers import SentenceTransformer
 
 from src.pdf_parser.pdf_parser import PdfTextExtractor
@@ -11,11 +11,6 @@ logger = logging.getLogger(__name__)
 
 
 class VectorDatabase:
-    """
-    Simple wrapper around ChromaDB + SentenceTransformers for
-    building and querying an article vector store.
-    """
-
     def __init__(
         self,
         pdf_root_path: Path,
@@ -24,60 +19,62 @@ class VectorDatabase:
         collection_name: str = "articles",
         chunk_size: int = 1000,
         chunk_overlap: int = 200,
+        token_encoding: str = "cl100k_base",
     ) -> None:
         self.pdf_root_path = pdf_root_path
         self.chroma_path = chroma_path
 
-        # Configurable parameters
         self.embedding_model = embedding_model
         self.collection_name = collection_name
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
+        self.token_encoding = token_encoding
 
-        # Lazily initialized components
         self._model = None
         self._client = None
         self._collection = None
 
-    # Internal helpers
     @staticmethod
-    def chunk_text(text: str, chunk_size: int = 1000, overlap: int = 200) -> List[str]:
-        """
-        Very simple sliding-window chunking.
-
-        :param text: Raw text to be split into chunks.
-        :param chunk_size: Maximum number of characters per chunk.
-        :param overlap: Number of characters that overlap between consecutive chunks.
-        :return: List of text chunks.
-        """
+    def chunk_text(
+        text: str,
+        chunk_size: int = 1000,
+        overlap: int = 200,
+        encoding_name: str = "cl100k_base",
+    ) -> List[str]:
         if not text.strip():
             return []
 
+        if chunk_size <= 0:
+            raise ValueError("chunk_size must be > 0")
+        if overlap < 0:
+            raise ValueError("overlap must be >= 0")
+        if overlap >= chunk_size:
+            raise ValueError("overlap must be < chunk_size")
+
+        enc = tiktoken.get_encoding(encoding_name)
+        tokens = enc.encode(text)
+
         chunks: List[str] = []
         start = 0
-        n = len(text)
+        n = len(tokens)
+        step = chunk_size - overlap
 
         while start < n:
-            end = start + chunk_size
-            chunk = text[start:end]
-            chunks.append(chunk)
-            # Move the window forward, keeping an overlap
-            start += chunk_size - overlap
+            end = min(start + chunk_size, n)
+            chunk_tokens = tokens[start:end]
+            chunk = enc.decode(chunk_tokens).strip()
+            if chunk:
+                chunks.append(chunk)
+            start += step
 
         return chunks
 
     def _ensure_model(self) -> None:
-        """
-        Lazily load the embedding model.
-        """
         if self._model is None:
             logger.info("Loading embedding model: %s ...", self.embedding_model)
             self._model = SentenceTransformer(self.embedding_model)
 
     def _ensure_collection(self) -> None:
-        """
-        Lazily create/get the Chroma collection.
-        """
         if self._client is None or self._collection is None:
             logger.info("Initializing Chroma at %s ...", self.chroma_path)
             self._client = chromadb.PersistentClient(path=str(self.chroma_path))
@@ -85,29 +82,7 @@ class VectorDatabase:
                 name=self.collection_name
             )
 
-    # Index building
     def build_index(self) -> None:
-        """
-        Build (or rebuild) the vector index from the PDFs.
-
-        It walks through the pdf_root_path, expecting a structure like:
-
-            pdf_root_path/
-              economy/
-                eco_1.pdf
-                ...
-              med/
-                med_1.pdf
-                ...
-              tech/
-                tech_1.pdf
-                ...
-
-        For each PDF it:
-        - Extracts full text.
-        - Splits into overlapping chunks.
-        - Stores each chunk with metadata including area, article_id, title and chunk_index.
-        """
         self._ensure_model()
         self._ensure_collection()
 
@@ -124,7 +99,7 @@ class VectorDatabase:
             if not area_dir.is_dir():
                 continue
 
-            area = area_dir.name  # e.g. "tech", "med", "economy"
+            area = area_dir.name
             logger.info("Processing area: %s", area)
 
             for pdf_path in sorted(area_dir.glob("*.pdf")):
@@ -133,7 +108,6 @@ class VectorDatabase:
                 try:
                     text = PdfTextExtractor.extract(pdf_path)
                 except Exception as e:
-                    # This will catch "no extractable text" and any other extraction error
                     logger.error(
                         "  [ERROR] Failed to extract text from %s: %s",
                         pdf_path,
@@ -145,6 +119,7 @@ class VectorDatabase:
                     text,
                     chunk_size=self.chunk_size,
                     overlap=self.chunk_overlap,
+                    encoding_name=self.token_encoding,
                 )
 
                 if not chunks:
@@ -154,15 +129,10 @@ class VectorDatabase:
                     )
                     continue
 
-                # A logical article identifier based on area + file stem
-                # Example: "tech_tech_1"
                 article_id = f"{area}_{pdf_path.stem}"
-
-                # Simple title derived from filename; can be improved later
                 title = pdf_path.stem.replace("_", " ")
 
                 for idx, chunk in enumerate(chunks):
-                    # Unique chunk id, including the chunk index
                     doc_id = f"{article_id}_{idx}"
                     all_ids.append(doc_id)
                     all_texts.append(chunk)
@@ -193,20 +163,7 @@ class VectorDatabase:
 
         logger.info("Chroma index built successfully with %d documents.", len(all_ids))
 
-    # Public API for MCP tools
     def search_articles(self, query: str, top_k: int = 5) -> List[Dict[str, Any]]:
-        """
-        Perform a similarity search over the collection and return aggregated results
-        at the article level (not chunk level).
-
-        The MCP tool can expose this with the expected contract:
-        - input: { "query": string }
-        - output: list of objects { "id", "title", "area", "score" }
-
-        :param query: Natural language query string.
-        :param top_k: Maximum number of distinct articles to return.
-        :return: List of article descriptors sorted by descending score.
-        """
         if not query.strip():
             logger.error("Query must not be empty.")
             raise ValueError("Query must not be empty.")
@@ -215,11 +172,8 @@ class VectorDatabase:
         self._ensure_collection()
 
         logger.debug("Running vector search for query: %s", query)
-        # Embed the query with the same model used to build the index
         query_embedding = self._model.encode([query]).tolist()
 
-        # Ask Chroma for similar chunks; we request more than top_k chunks
-        # and then aggregate them by article_id.
         raw = self._collection.query(
             query_embeddings=query_embedding,
             n_results=top_k * 3,
@@ -233,8 +187,6 @@ class VectorDatabase:
             logger.info("No results returned from vector search.")
             return []
 
-        # Transform distances into scores (smaller distance -> higher score).
-        # Here we use a simple heuristic: score = 1 / (1 + distance).
         scored_chunks: List[Dict[str, Any]] = []
         for meta, dist in zip(metadatas, distances):
             score = 1.0 / (1.0 + float(dist))
@@ -247,7 +199,6 @@ class VectorDatabase:
                 }
             )
 
-        # Aggregate by article_id: keep the best score per article.
         by_article: Dict[str, Dict[str, Any]] = {}
         for chunk in scored_chunks:
             aid = chunk["article_id"]
@@ -260,22 +211,11 @@ class VectorDatabase:
                     "score": chunk["score"],
                 }
 
-        # Sort by score (descending) and limit to top_k.
         results = sorted(by_article.values(), key=lambda x: x["score"], reverse=True)
         logger.debug("Vector search returned %d aggregated articles.", len(results))
         return results[:top_k]
 
     def get_article_content(self, article_id: str) -> Dict[str, Any]:
-        """
-        Retrieve the full content (concatenated chunks) for a given article_id.
-
-        The MCP tool can expose this with the expected contract:
-        - input: { "id": string }
-        - output: { "id", "title", "area", "content" }
-
-        :param article_id: Logical article identifier (area + filename stem).
-        :return: Dict with article id, title, area and concatenated content.
-        """
         self._ensure_collection()
 
         logger.debug("Fetching article content for id=%s", article_id)
@@ -291,7 +231,6 @@ class VectorDatabase:
             logger.error("Article '%s' not found in vector store.", article_id)
             raise ValueError(f"Article '{article_id}' not found in vector store.")
 
-        # Each entry is (document_text, metadata)
         combined = sorted(
             zip(documents, metadatas),
             key=lambda x: x[1].get("chunk_index", 0),

@@ -1,9 +1,9 @@
 version: "3.9"
 
 services:
-  most-app:
+  summary-app:
     build: .
-    container_name: most-app
+    container_name: summary-app
     env_file:
       - .env
     working_dir: /app
